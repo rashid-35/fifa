@@ -5,15 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>2-Player Mini FIFA Game</title>
 <style>
+  :root {
+    --field-green: #0b6623;
+    --grass-dark: #1b5e20;
+    --panel: #111;
+    --white: #fff;
+    --blue: #2196f3;
+    --red: #f44336;
+    --yellow: #ffeb3b;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
   body {
-    background: #1b5e20;
+    background: var(--grass-dark);
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    min-height: 100vh;
     margin: 0;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     flex-direction: column;
+    padding: 20px;
   }
 
   #game-container {
@@ -21,30 +36,35 @@
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     border-radius: 8px;
     overflow: hidden;
+    width: 800px;
+    max-width: 100%;
   }
 
   .scoreboard {
     width: 100%;
-    background: #111;
-    color: #fff;
+    background: var(--panel);
+    color: var(--white);
     display: flex;
     justify-content: space-around;
     align-items: center;
     padding: 12px 0;
     font-size: 20px;
     font-weight: bold;
-    border-bottom: 2px solid #fff;
+    border-bottom: 2px solid var(--white);
   }
 
-  .p1-score { color: #2196f3; }
-  .p2-score { color: #f44336; }
-  .timer-box { color: #ffeb3b; }
+  .p1-score { color: var(--blue); }
+  .p2-score { color: var(--red); }
+  .timer-box { color: var(--yellow); }
 
   canvas {
-    background: #0b6623;
+    background: var(--field-green);
     border: 5px solid white;
     border-top: none;
     display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
   }
 
   .game-over-screen {
@@ -61,13 +81,15 @@
     align-items: center;
     font-size: 28px;
     border-radius: 8px;
+    text-align: center;
+    padding: 20px;
   }
 
   .btn {
     margin-top: 20px;
     padding: 12px 30px;
     font-size: 18px;
-    background-color: #ffeb3b;
+    background-color: var(--yellow);
     color: #111;
     border: none;
     border-radius: 20px;
@@ -126,26 +148,39 @@ let p1Goals = 0;
 let p2Goals = 0;
 let timeLeft = 90;
 let gameActive = true;
-let timerInterval;
+let timerInterval = null;
+let lastTimestamp = 0;
 
 const p1 = { x: 150, y: 200, size: 20, color: "#2196f3", speed: 5 };
 const p2 = { x: 650, y: 200, size: 20, color: "#f44336", speed: 5 };
-const ball = { x: 400, y: 200, size: 12, color: "white", dx: 0, dy: 0 };
+const ball = {
+  x: 400,
+  y: 200,
+  size: 12,
+  color: "white",
+  dx: 0,
+  dy: 0,
+  scored: false
+};
 
-// Goals at both ends
 const goalLeft = { x: 0, y: 150, w: 25, h: 100 };
 const goalRight = { x: 775, y: 150, w: 25, h: 100 };
 
-let keys = {};
+const keys = {};
 
-document.addEventListener("keydown", e => keys[e.key] = true);
-document.addEventListener("keyup", e => keys[e.key] = false);
+document.addEventListener("keydown", (e) => {
+  keys[e.key] = true;
+});
+
+document.addEventListener("keyup", (e) => {
+  keys[e.key] = false;
+});
 
 function startTimer() {
   clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     if (!gameActive) return;
-    
+
     timeLeft--;
     timerEl.textContent = timeLeft;
 
@@ -156,13 +191,11 @@ function startTimer() {
 }
 
 function movePlayers() {
-  // Player 1 (WASD)
   if ((keys["w"] || keys["W"]) && p1.y - p1.size > 0) p1.y -= p1.speed;
   if ((keys["s"] || keys["S"]) && p1.y + p1.size < canvas.height) p1.y += p1.speed;
   if ((keys["a"] || keys["A"]) && p1.x - p1.size > 0) p1.x -= p1.speed;
   if ((keys["d"] || keys["D"]) && p1.x + p1.size < canvas.width) p1.x += p1.speed;
 
-  // Player 2 (Arrow Keys)
   if (keys["ArrowUp"] && p2.y - p2.size > 0) p2.y -= p2.speed;
   if (keys["ArrowDown"] && p2.y + p2.size < canvas.height) p2.y += p2.speed;
   if (keys["ArrowLeft"] && p2.x - p2.size > 0) p2.x -= p2.speed;
@@ -173,24 +206,33 @@ function moveBall() {
   ball.x += ball.dx;
   ball.y += ball.dy;
 
-  ball.dx *= 0.98; // friction
-  ball.dy *= 0.98;
+  ball.dx *= 0.985;
+  ball.dy *= 0.985;
 
-  // Bounce off top and bottom boundaries
-  if (ball.y - ball.size < 0 || ball.y + ball.size > canvas.height) {
+  const maxSpeed = 9;
+  if (Math.abs(ball.dx) > maxSpeed) ball.dx = Math.sign(ball.dx) * maxSpeed;
+  if (Math.abs(ball.dy) > maxSpeed) ball.dy = Math.sign(ball.dy) * maxSpeed;
+
+  if (ball.y - ball.size < 0) {
+    ball.y = ball.size;
     ball.dy *= -1;
   }
 
-  // Bounce off left wall (except inside left goal)
+  if (ball.y + ball.size > canvas.height) {
+    ball.y = canvas.height - ball.size;
+    ball.dy *= -1;
+  }
+
   if (ball.x - ball.size < 0) {
     if (ball.y < goalLeft.y || ball.y > goalLeft.y + goalLeft.h) {
+      ball.x = ball.size;
       ball.dx *= -1;
     }
   }
 
-  // Bounce off right wall (except inside right goal)
   if (ball.x + ball.size > canvas.width) {
     if (ball.y < goalRight.y || ball.y > goalRight.y + goalRight.h) {
+      ball.x = canvas.width - ball.size;
       ball.dx *= -1;
     }
   }
@@ -199,27 +241,59 @@ function moveBall() {
 function handleKick(player) {
   const dx = ball.x - player.x;
   const dy = ball.y - player.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
+  const distance = Math.hypot(dx, dy);
+  const minDistance = player.size + ball.size;
 
-  if (distance < player.size + ball.size) {
-    ball.dx = dx * 0.35;
-    ball.dy = dy * 0.35;
+  if (distance < minDistance) {
+    const angle = Math.atan2(dy, dx);
+    const overlap = minDistance - distance;
+
+    ball.x += Math.cos(angle) * (overlap + 1);
+    ball.y += Math.sin(angle) * (overlap + 1);
+
+    const power = 5.5;
+    const newDx = Math.cos(angle) * power + (Math.random() * 0.5 - 0.25);
+    const newDy = Math.sin(angle) * power + (Math.random() * 0.5 - 0.25);
+
+    ball.dx = newDx;
+    ball.dy = newDy;
   }
 }
 
+function resetBallAfterGoal() {
+  ball.scored = false;
+  const newPos = getRandomBallPosition();
+  ball.x = newPos.x;
+  ball.y = newPos.y;
+  ball.dx = 0;
+  ball.dy = 0;
+}
+
 function checkGoals() {
-  // Goal in Left Goal (P2 Scores!)
-  if (ball.x - ball.size < goalLeft.x + goalLeft.w && ball.y > goalLeft.y && ball.y < goalLeft.y + goalLeft.h) {
+  const ballInsideLeftGoal =
+    ball.x - ball.size <= goalLeft.x + goalLeft.w &&
+    ball.x + ball.size >= goalLeft.x &&
+    ball.y > goalLeft.y &&
+    ball.y < goalLeft.y + goalLeft.h;
+
+  const ballInsideRightGoal =
+    ball.x + ball.size >= goalRight.x &&
+    ball.x - ball.size <= goalRight.x + goalRight.w &&
+    ball.y > goalRight.y &&
+    ball.y < goalRight.y + goalRight.h;
+
+  if (ballInsideLeftGoal && !ball.scored) {
+    ball.scored = true;
     p2Goals++;
     p2GoalsEl.textContent = p2Goals;
-    resetPositions();
+    setTimeout(resetBallAfterGoal, 400);
   }
 
-  // Goal in Right Goal (P1 Scores!)
-  if (ball.x + ball.size > goalRight.x && ball.y > goalRight.y && ball.y < goalRight.y + goalRight.h) {
+  if (ballInsideRightGoal && !ball.scored) {
+    ball.scored = true;
     p1Goals++;
     p1GoalsEl.textContent = p1Goals;
-    resetPositions();
+    setTimeout(resetBallAfterGoal, 400);
   }
 }
 
@@ -246,16 +320,15 @@ function resetPositions() {
   ball.y = newPos.y;
   ball.dx = 0;
   ball.dy = 0;
+  ball.scored = false;
 }
 
-function draw() {
+function drawField() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Field line markings
   ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
   ctx.lineWidth = 2;
 
-  // Center Line & Circle
   ctx.beginPath();
   ctx.moveTo(canvas.width / 2, 0);
   ctx.lineTo(canvas.width / 2, canvas.height);
@@ -265,21 +338,20 @@ function draw() {
   ctx.arc(canvas.width / 2, canvas.height / 2, 50, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Draw Left Goal (Red Team Goal)
   ctx.fillStyle = "rgba(244, 67, 54, 0.2)";
   ctx.fillRect(goalLeft.x, goalLeft.y, goalLeft.w, goalLeft.h);
   ctx.strokeStyle = "#f44336";
   ctx.lineWidth = 3;
   ctx.strokeRect(goalLeft.x, goalLeft.y, goalLeft.w, goalLeft.h);
 
-  // Draw Right Goal (Blue Team Goal)
   ctx.fillStyle = "rgba(33, 150, 243, 0.2)";
   ctx.fillRect(goalRight.x, goalRight.y, goalRight.w, goalRight.h);
   ctx.strokeStyle = "#2196f3";
   ctx.lineWidth = 3;
   ctx.strokeRect(goalRight.x, goalRight.y, goalRight.w, goalRight.h);
+}
 
-  // Draw P1
+function drawPlayersAndBall() {
   ctx.fillStyle = p1.color;
   ctx.beginPath();
   ctx.arc(p1.x, p1.y, p1.size, 0, Math.PI * 2);
@@ -288,7 +360,6 @@ function draw() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Draw P2
   ctx.fillStyle = p2.color;
   ctx.beginPath();
   ctx.arc(p2.x, p2.y, p2.size, 0, Math.PI * 2);
@@ -297,7 +368,6 @@ function draw() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Draw Ball
   ctx.fillStyle = ball.color;
   ctx.beginPath();
   ctx.arc(ball.x, ball.y, ball.size, 0, Math.PI * 2);
@@ -307,22 +377,34 @@ function draw() {
   ctx.stroke();
 }
 
-function gameLoop() {
+function draw() {
+  drawField();
+  drawPlayersAndBall();
+}
+
+function gameLoop(timestamp) {
   if (gameActive) {
-    movePlayers();
-    moveBall();
-    handleKick(p1);
-    handleKick(p2);
-    checkGoals();
-    draw();
+    if (!lastTimestamp) lastTimestamp = timestamp;
+    const delta = timestamp - lastTimestamp;
+    lastTimestamp = timestamp;
+
+    if (delta > 0) {
+      movePlayers();
+      moveBall();
+      handleKick(p1);
+      handleKick(p2);
+      checkGoals();
+      draw();
+    }
   }
+
   requestAnimationFrame(gameLoop);
 }
 
 function endGame() {
   gameActive = false;
   clearInterval(timerInterval);
-  
+
   if (p1Goals > p2Goals) {
     winnerTextEl.textContent = "PLAYER 1 WINS! 🏆";
   } else if (p2Goals > p1Goals) {
@@ -348,10 +430,9 @@ function resetGame() {
   startTimer();
 }
 
-// Initial positioning and loop start
 resetPositions();
 startTimer();
-gameLoop();
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
